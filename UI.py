@@ -7,8 +7,6 @@ st.title("SmartHire — واجهة المستخدم")
 tab1, tab2 = st.tabs([" رفع وقراءة PDF", " Fake Resume Dataset"])
 
 # -----------------------------
-# TAB 1: PDF Upload UI
-# -----------------------------
 with tab1:
     st.subheader("رفع السيرة الذاتية (PDF)")
 
@@ -30,8 +28,6 @@ with tab1:
     with col3:
         st.button(" مسح المحتوى")
 
-# -----------------------------
-# TAB 2: Dataset Prep UI
 # -----------------------------
 with tab2:
     st.subheader("تجهيز Fake Resume Dataset")
