@@ -1,68 +1,69 @@
 from pathlib import Path
 import json
 import re
+import os
+import time
 from openai import OpenAI
+from dotenv import load_dotenv
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+# Load environment variables from .env file
+load_dotenv(PROJECT_ROOT / ".env")
 
 INPUT_DIR = PROJECT_ROOT / "data" / "processed" / "resumes_text"
 OUTPUT_DIR = PROJECT_ROOT / "data" / "processed" / "resumes_sectioned_json"
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
+# Groq - Free & Fast LLM inference
 client = OpenAI(
-    api_key="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",
-    base_url="https://openrouter.ai/api/v1"
+    api_key=os.getenv("GROQ_API_KEY"),
+    base_url="https://api.groq.com/openai/v1"
 )
 
-MODEL = "deepseek/deepseek-chat"
+# Using 70B model for better JSON handling on complex resumes
+MODEL = "llama-3.3-70b-versatile"
 
-SYSTEM_PROMPT = """
-You are a strict JSON generator.
+# Rate limit settings (Groq free tier - 70B has lower limits)
+DELAY_BETWEEN_CALLS = 5  # seconds between API calls to avoid rate limits
 
-Task:
-Analyze the resume text and extract structured information.
-
-Sections:
-- summary
-- experience
-- education
-- skills
-- certifications
-- other
-
-Rules:
-- Return ONLY valid JSON.
-- No explanations.
-- No markdown.
-- No extra text.
-- All keys must exist.
-- Use empty values if information is not found.
-
-STRUCTURE RULES:
-- summary: a concise professional summary, MAX 3 sentences.
-- experience: MUST be a list. Each item represents ONE role, responsibility, or achievement.
-- skills: MUST be a list. Extract both explicitly listed skills and clearly implied professional or technical skills.
-- education: Extract degrees, fields of study, institutions, or graduation years if mentioned anywhere in the text.
-- certifications: MUST be a list if present.
-- other: Any remaining relevant information as a list.
-
-FORMATTING RULES:
-- Prefer lists over long paragraphs whenever possible.
-- Do NOT merge multiple ideas into one list item.
-- Keep all text clean and readable.
-
-Output format:
+SYSTEM_PROMPT = """You are a strict JSON generator. Extract resume information into EXACTLY this schema:
 
 {
-  "summary": "",
-  "experience": [],
-  "education": [],
-  "skills": [],
-  "certifications": [],
-  "other": []
+  "summary": "2-3 sentence professional summary",
+  "experience": [
+    {
+      "title": "Job Title",
+      "company": "Company Name",
+      "dates": "Start - End",
+      "location": "City, State",
+      "responsibilities": ["responsibility 1", "responsibility 2"]
+    }
+  ],
+  "education": [
+    {
+      "degree": "Degree Type",
+      "field": "Field of Study",
+      "institution": "School Name",
+      "dates": "Year or Date Range",
+      "gpa": "GPA if mentioned"
+    }
+  ],
+  "skills": ["skill1", "skill2", "skill3"],
+  "certifications": ["certification1", "certification2"],
+  "other": ["other relevant info"]
 }
-"""
+
+STRICT RULES:
+1. Return ONLY the JSON object - no markdown, no explanations, no extra text
+2. EVERY experience item MUST be an object with: title, company, dates, location, responsibilities
+3. EVERY education item MUST be an object with: degree, field, institution, dates, gpa
+4. Skills must be a flat array of strings - no duplicates, normalize to title case
+5. Certifications must be a flat array of strings
+6. Use empty string "" for missing fields, empty array [] for missing sections
+7. Extract ALL experience and education entries from the resume
+8. Do NOT invent information - only extract what is explicitly stated"""
 
 def clean_text(text: str) -> str:
     if not text:
@@ -76,39 +77,67 @@ def clean_text(text: str) -> str:
 
     return text.strip()
 
-def section_with_llm(text: str, retries: int = 2) -> dict:
+def section_with_llm(text: str, retries: int = 3) -> dict:
+    """Call LLM to extract sections from resume text with retry logic."""
+    last_error = None
+    
     for attempt in range(retries):
-        response = client.chat.completions.create(
-            model=MODEL,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": text}
-            ],
-            temperature=0,
-            max_tokens=800
-        )
-
-        content = response.choices[0].message.content.strip()
-
         try:
+            response = client.chat.completions.create(
+                model=MODEL,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": text}
+                ],
+                temperature=0,
+                max_tokens=4000
+            )
+
+            content = response.choices[0].message.content
+            
+            # Handle empty response
+            if not content or not content.strip():
+                raise ValueError("Empty response from LLM")
+            
+            content = content.strip()
+            
+            # Remove markdown code blocks if present
+            if content.startswith("```"):
+                content = re.sub(r'^```json?\s*', '', content)
+                content = re.sub(r'\s*```$', '', content)
+            
             return json.loads(content)
-        except Exception:
-            if attempt == retries - 1:
-                raise
+            
+        except Exception as e:
+            last_error = e
+            if attempt < retries - 1:
+                wait_time = (attempt + 1) * 2  # 2s, 4s, 6s
+                print(f"\n  Retry {attempt + 1}/{retries} after error: {str(e)[:50]}...")
+                time.sleep(wait_time)
+            continue
+    
+    # All retries failed
+    raise last_error
 
 def process_all_txt():
     files = list(INPUT_DIR.glob("*.txt"))
     done_files = {
         f.stem for f in OUTPUT_DIR.glob("*.json")
     }
+    
+    pending_files = [f for f in files if f.stem not in done_files]
 
     print(f"Found {len(files)} resume files")
     print(f"Already processed: {len(done_files)}")
+    print(f"Remaining: {len(pending_files)}")
+    
+    if not pending_files:
+        print("All files already processed!")
+        return
 
-    for file in files:
-        if file.stem in done_files:
-            continue  # skip already processed files
-
+    for i, file in enumerate(pending_files):
+        print(f"[{i+1}/{len(pending_files)}] Processing {file.name}...", end=" ")
+        
         try:
             raw = file.read_text(encoding="utf-8", errors="ignore")
             cleaned = clean_text(raw)
@@ -123,9 +152,15 @@ def process_all_txt():
             out_path = OUTPUT_DIR / f"{file.stem}.json"
             with open(out_path, "w", encoding="utf-8") as f:
                 json.dump(output, f, indent=2, ensure_ascii=False)
+            
+            print("✓")
+            
+            # Delay between calls to avoid rate limits
+            if i < len(pending_files) - 1:  # Don't delay after last file
+                time.sleep(DELAY_BETWEEN_CALLS)
 
         except Exception as e:
-            print(f"Failed on {file.name}: {e}")
+            print(f"✗ Error: {e}")
 
     print("Done. All resumes processed.")
 

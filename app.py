@@ -1,195 +1,153 @@
+"""
+SmartHire - AI-Powered Recruitment Assistant
+Main Streamlit Application
+"""
 import streamlit as st
-import os
-import sys
 import json
+import sys
 from pathlib import Path
 
-# Add scripts folder to path for imports
+# Setup paths
 PROJECT_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
+sys.path.insert(0, str(PROJECT_ROOT))
 
-# Import functions from scripts
-from pdf_extractor import extract_text_from_pdf as extract_pdf_pdfplumber, process_all_pdfs
-from clean_text_to_json import clean_text, process_all_txt_files
-from build_sections import build_sections, process_files as build_all_sections
-from inspect_sections import inspect_sections
+# Import components
+from components import load_css, display_sections, render_sidebar, render_hero
+from components.helpers import get_dataset_stats, process_single_resume, get_directories
+from components.ui import render_section_header, render_upload_area, render_info_card, render_stat_card, render_pipeline_card
 
-# --- Directory Setup ---
-DATA_DIR = PROJECT_ROOT / "data"
-RAW_DIR = DATA_DIR / "raw" / "fake_resumes"
-PROCESSED_TEXT_DIR = DATA_DIR / "processed" / "resumes_text"
-PROCESSED_CLEAN_DIR = DATA_DIR / "processed" / "resumes_clean"
-PROCESSED_STRUCTURED_DIR = DATA_DIR / "processed" / "resumes_structured"
-UPLOADS_DIR = DATA_DIR / "uploads"
+# Import pipeline functions
+from pdf_extractor import process_all_pdfs
+from section_resumes import process_all_txt as section_all_resumes
+
+# Get directories
+dirs = get_directories()
 
 # Ensure directories exist
-for dir_path in [RAW_DIR, PROCESSED_TEXT_DIR, PROCESSED_CLEAN_DIR, PROCESSED_STRUCTURED_DIR, UPLOADS_DIR]:
+for dir_path in [dirs["raw"], dirs["text"], dirs["sectioned"], dirs["uploads"]]:
     dir_path.mkdir(parents=True, exist_ok=True)
 
 
-# --- Helper Functions ---
-def process_single_resume(pdf_path: Path) -> dict:
-    """
-    Full pipeline for a single resume:
-    1. Extract text from PDF
-    2. Clean the text
-    3. Build structured sections
-    """
-    # Step 1: Extract text from PDF
-    raw_text = extract_pdf_pdfplumber(pdf_path)
-    
-    if not raw_text.strip():
-        return {"error": "Could not extract text from PDF"}
-    
-    # Step 2: Clean the text
-    cleaned_text = clean_text(raw_text)
-    
-    # Step 3: Build sections
-    sections = build_sections(cleaned_text)
-    
-    return {
-        "filename": pdf_path.name,
-        "raw_text": raw_text,
-        "clean_text": cleaned_text,
-        "sections": sections
-    }
+# ============================================
+# PAGE CONFIG
+# ============================================
+st.set_page_config(
+    page_title="SmartHire - AI Recruitment", 
+    page_icon="🎯",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
+# Load styling
+load_css()
 
-def get_dataset_stats() -> dict:
-    """Get statistics about the current dataset"""
-    raw_pdfs = list(RAW_DIR.glob("*.pdf"))
-    text_files = list(PROCESSED_TEXT_DIR.glob("*.txt"))
-    clean_files = list(PROCESSED_CLEAN_DIR.glob("*.json"))
-    structured_files = list(PROCESSED_STRUCTURED_DIR.glob("*.json"))
-    
-    return {
-        "raw_pdfs": len(raw_pdfs),
-        "extracted_text": len(text_files),
-        "cleaned_json": len(clean_files),
-        "structured_json": len(structured_files)
-    }
-
-
-def display_sections(sections: dict):
-    """Display resume sections in a nice format"""
-    section_icons = {
-        "summary": "📋",
-        "experience": "💼",
-        "education": "🎓",
-        "skills": "🛠️",
-        "certifications": "📜",
-        "other": "📄"
-    }
-    
-    for section_name, content in sections.items():
-        if content:
-            icon = section_icons.get(section_name, "📄")
-            with st.expander(f"{icon} {section_name.title()}", expanded=(section_name in ["summary", "skills"])):
-                st.write(content)
-
-
-# --- 1. Page Config ---
-st.set_page_config(page_title="SmartHire - AI Recruitment", layout="wide")
-
-# --- 2. Title & Sidebar ---
-st.title("SmartHire: Intelligent Recruitment Assistant")
-st.sidebar.header("Control Panel")
-
-# Dataset stats in sidebar
+# Get stats
 stats = get_dataset_stats()
-st.sidebar.subheader("Dataset Statistics")
-st.sidebar.metric("Raw PDFs", stats["raw_pdfs"])
-st.sidebar.metric("Extracted Text", stats["extracted_text"])
-st.sidebar.metric("Cleaned JSON", stats["cleaned_json"])
-st.sidebar.metric("Structured JSON", stats["structured_json"])
 
-st.sidebar.divider()
-st.sidebar.info("System Status: Online 🟢")
+# Render hero and sidebar
+render_hero()
+render_sidebar(stats)
 
-# --- 3. The Tabs ---
-tab1, tab2, tab3 = st.tabs(["📄 Candidate Analysis", "🗄️ Dataset Manager", "🔍 Browse Resumes"])
 
-# --- TAB 1: Single Resume Analysis ---
+# ============================================
+# TABS
+# ============================================
+tab1, tab2, tab3 = st.tabs(["📄 Analyze Resume", "⚙️ Pipeline Manager", "👥 Browse Candidates"])
+
+
+# ============================================
+# TAB 1: ANALYZE RESUME
+# ============================================
 with tab1:
-    st.header("Analyze a Resume")
-    st.write("Upload a PDF resume to extract and analyze its content.")
+    render_section_header("📄 Upload & Analyze Resume")
     
-    uploaded_file = st.file_uploader("Upload Candidate Resume (PDF)", type=["pdf"])
+    col_upload, col_info = st.columns([2, 1])
+    
+    with col_upload:
+        render_upload_area()
+        uploaded_file = st.file_uploader("Upload Resume", type=["pdf"], label_visibility="collapsed")
+    
+    with col_info:
+        render_info_card()
     
     if uploaded_file is not None:
         # Save uploaded file
-        save_path = UPLOADS_DIR / uploaded_file.name
+        save_path = dirs["uploads"] / uploaded_file.name
         with open(save_path, "wb") as f:
             f.write(uploaded_file.getbuffer())
         
-        st.success(f"File '{uploaded_file.name}' uploaded successfully!")
+        st.success(f"✅ **{uploaded_file.name}** uploaded successfully!")
         
-        # Analysis options
-        col1, col2 = st.columns(2)
-        with col1:
-            show_raw = st.checkbox("Show raw extracted text", value=False)
+        # Advanced options
+        with st.expander("⚙️ Advanced Options", expanded=False):
+            col1, col2 = st.columns(2)
+            with col1:
+                show_raw = st.checkbox("Show raw extracted text", value=False)
+            with col2:
+                show_clean = st.checkbox("Show cleaned text", value=False)
+        
+        # Analyze button
+        col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
-            show_clean = st.checkbox("Show cleaned text", value=False)
+            analyze_btn = st.button("🚀 Analyze Resume with AI", type="primary", use_container_width=True)
         
-        # The Action Button
-        if st.button("🚀 Extract & Analyze Resume", type="primary"):
-            with st.spinner("SmartHire is processing the resume..."):
+        if analyze_btn:
+            with st.spinner("🤖 AI is analyzing the resume..."):
                 result = process_single_resume(save_path)
             
             if "error" in result:
-                st.error(result["error"])
+                st.error(f"❌ {result['error']}")
             else:
-                st.subheader("📊 Structured Resume Data")
+                render_section_header("📊 Analysis Results")
                 display_sections(result["sections"])
                 
-                # Optional: Show raw text
                 if show_raw:
-                    st.subheader("Raw Extracted Text")
-                    st.text_area("Raw Text", result["raw_text"], height=200)
+                    with st.expander("📄 Raw Extracted Text"):
+                        st.text_area("Raw Text", result["raw_text"], height=200, label_visibility="collapsed")
                 
-                # Optional: Show cleaned text
                 if show_clean:
-                    st.subheader("Cleaned Text")
-                    st.text_area("Cleaned Text", result["clean_text"], height=200)
+                    with st.expander("🧹 Cleaned Text"):
+                        st.text_area("Cleaned Text", result["clean_text"], height=200, label_visibility="collapsed")
                 
-                # Download option
+                # Download button
                 st.divider()
-                json_output = json.dumps(result["sections"], indent=2, ensure_ascii=False)
-                st.download_button(
-                    label="📥 Download Structured Data (JSON)",
-                    data=json_output,
-                    file_name=f"{save_path.stem}_structured.json",
-                    mime="application/json"
-                )
+                col1, col2, col3 = st.columns([1, 2, 1])
+                with col2:
+                    json_output = json.dumps(result["sections"], indent=2, ensure_ascii=False)
+                    st.download_button(
+                        label="📥 Download JSON",
+                        data=json_output,
+                        file_name=f"{save_path.stem}_structured.json",
+                        mime="application/json",
+                        use_container_width=True
+                    )
 
-# --- TAB 2: Dataset Manager (Batch Processing) ---
+
+# ============================================
+# TAB 2: PIPELINE MANAGER
+# ============================================
 with tab2:
-    st.header("Dataset Management")
-    st.write("Run the full data processing pipeline on the entire dataset.")
+    render_section_header("⚙️ Data Processing Pipeline")
     
-    # Show current stats
-    col1, col2, col3, col4 = st.columns(4)
+    # Stats row
+    col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("📁 Raw PDFs", stats["raw_pdfs"])
+        render_stat_card(stats["raw_pdfs"], "📁 Raw PDFs", "#667eea")
     with col2:
-        st.metric("📝 Text Files", stats["extracted_text"])
+        render_stat_card(stats["extracted_text"], "📝 Extracted", "#28a745")
     with col3:
-        st.metric("🧹 Clean JSON", stats["cleaned_json"])
-    with col4:
-        st.metric("📊 Structured", stats["structured_json"])
+        render_stat_card(stats["sectioned_json"], "🤖 AI Processed", "#764ba2")
     
-    st.divider()
+    st.markdown("<br>", unsafe_allow_html=True)
     
     # Pipeline steps
-    st.subheader("🔧 Processing Pipeline")
-    
-    col1, col2, col3 = st.columns(3)
+    col1, col2 = st.columns(2)
     
     with col1:
-        st.write("**Step 1: Extract Text**")
-        st.caption("Convert PDFs to plain text files")
-        if st.button("▶️ Run PDF Extraction", key="extract"):
-            with st.spinner("Extracting text from PDFs..."):
+        render_pipeline_card("📄 Step 1: Extract Text", "Convert PDF files to plain text using pdfplumber")
+        if st.button("▶️ Run Extraction", key="extract", use_container_width=True):
+            with st.spinner("📄 Extracting text from PDFs..."):
                 try:
                     process_all_pdfs()
                     st.success("✅ PDF extraction complete!")
@@ -198,69 +156,63 @@ with tab2:
                     st.error(f"Error: {e}")
     
     with col2:
-        st.write("**Step 2: Clean Text**")
-        st.caption("Clean and normalize text files")
-        if st.button("▶️ Run Text Cleaning", key="clean"):
-            with st.spinner("Cleaning text files..."):
+        render_pipeline_card("🤖 Step 2: AI Structuring", "Use LLM to extract structured resume data")
+        if st.button("🤖 Run AI Processing", key="section", use_container_width=True):
+            with st.spinner("🤖 Processing with AI (this may take a while)..."):
                 try:
-                    process_all_txt_files()
-                    st.success("✅ Text cleaning complete!")
+                    section_all_resumes()
+                    st.success("✅ AI processing complete!")
                     st.rerun()
                 except Exception as e:
                     st.error(f"Error: {e}")
     
-    with col3:
-        st.write("**Step 3: Build Sections**")
-        st.caption("Extract resume sections")
-        if st.button("▶️ Run Section Builder", key="sections"):
-            with st.spinner("Building resume sections..."):
-                try:
-                    build_all_sections()
-                    st.success("✅ Section building complete!")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Error: {e}")
+    st.markdown("<br>", unsafe_allow_html=True)
     
-    st.divider()
+    # Full pipeline
+    render_pipeline_card("🚀 Run Complete Pipeline", "Execute all steps in sequence", highlight=True)
     
-    # Run full pipeline
-    st.subheader("🚀 Full Pipeline")
-    if st.button("▶️ Run Complete Pipeline", type="primary"):
+    if st.button("🚀 Run Full Pipeline", type="primary", use_container_width=True):
         progress_bar = st.progress(0)
         status_text = st.empty()
         
         try:
-            status_text.text("Step 1/3: Extracting text from PDFs...")
+            status_text.info("📄 Step 1/2: Extracting text from PDFs...")
             process_all_pdfs()
-            progress_bar.progress(33)
+            progress_bar.progress(50)
             
-            status_text.text("Step 2/3: Cleaning text files...")
-            process_all_txt_files()
-            progress_bar.progress(66)
-            
-            status_text.text("Step 3/3: Building resume sections...")
-            build_all_sections()
+            status_text.info("🤖 Step 2/2: Processing with AI...")
+            section_all_resumes()
             progress_bar.progress(100)
             
-            status_text.text("✅ Pipeline complete!")
-            st.success("All processing steps completed successfully!")
+            status_text.success("✅ Pipeline complete!")
+            st.balloons()
             st.rerun()
         except Exception as e:
-            st.error(f"Pipeline error: {e}")
+            st.error(f"❌ Pipeline error: {e}")
 
-# --- TAB 3: Browse Processed Resumes ---
+
+# ============================================
+# TAB 3: BROWSE CANDIDATES
+# ============================================
 with tab3:
-    st.header("Browse Processed Resumes")
+    render_section_header("👥 Candidate Database")
     
-    structured_files = list(PROCESSED_STRUCTURED_DIR.glob("*.json"))
+    structured_files = list(dirs["sectioned"].glob("*.json"))
     
     if not structured_files:
-        st.warning("No processed resumes found. Run the pipeline in Dataset Manager first.")
+        st.markdown("""
+        <div class="card" style="text-align: center; padding: 3rem;">
+            <h3>📭 No Candidates Yet</h3>
+            <p>Run the processing pipeline to add resumes to the database.</p>
+        </div>
+        """, unsafe_allow_html=True)
     else:
-        st.write(f"Found **{len(structured_files)}** processed resumes")
-        
-        # Search/filter
-        search_term = st.text_input("🔍 Search by filename", "")
+        # Stats and search
+        col1, col2 = st.columns([1, 2])
+        with col1:
+            render_stat_card(len(structured_files), "Total Candidates", "#667eea")
+        with col2:
+            search_term = st.text_input("🔍 Search candidates...", "", placeholder="Enter name or ID")
         
         # Filter files
         if search_term:
@@ -269,20 +221,36 @@ with tab3:
             filtered_files = structured_files
         
         # Pagination
-        items_per_page = 10
+        col1, col2, col3 = st.columns([1, 2, 1])
+        items_per_page = 5
         total_pages = max(1, (len(filtered_files) + items_per_page - 1) // items_per_page)
-        page = st.selectbox("Page", range(1, total_pages + 1), index=0)
+        with col2:
+            page = st.selectbox("Page", range(1, total_pages + 1), index=0, label_visibility="collapsed")
+        with col3:
+            st.caption(f"Page {page} of {total_pages}")
         
         start_idx = (page - 1) * items_per_page
         end_idx = start_idx + items_per_page
         page_files = filtered_files[start_idx:end_idx]
         
-        # Display resumes
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        # Display candidates
         for file in page_files:
-            with st.expander(f"📄 {file.stem}"):
-                try:
-                    data = json.loads(file.read_text(encoding="utf-8"))
-                    sections = data.get("sections", {})
+            try:
+                data = json.loads(file.read_text(encoding="utf-8"))
+                sections = data.get("sections", {})
+                
+                with st.expander(f"👤 Candidate {file.stem}"):
+                    st.markdown(f"**📋 Summary:** {sections.get('summary', 'N/A')}")
+                    
+                    if sections.get("skills"):
+                        st.markdown("**🛠️ Skills:**")
+                        skills_display = " • ".join(sections.get("skills", []))
+                        st.markdown(f'<p style="color: #667eea;">{skills_display}</p>', unsafe_allow_html=True)
+                    
+                    st.divider()
                     display_sections(sections)
-                except Exception as e:
-                    st.error(f"Error loading file: {e}")
+                    
+            except Exception as e:
+                st.error(f"Error loading {file.name}: {e}")
