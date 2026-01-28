@@ -22,11 +22,17 @@ client = OpenAI(
     base_url="https://api.groq.com/openai/v1"
 )
 
-# Using 70B model for better JSON handling on complex resumes
-MODEL = "llama-3.3-70b-versatile"
+# Model configuration
+# 70B: Better quality, 100k tokens/day limit
+# 8B: Good quality, 500k tokens/day limit (fallback)
+PRIMARY_MODEL = "llama-3.3-70b-versatile"
+FALLBACK_MODEL = "llama-3.1-8b-instant"
 
-# Rate limit settings (Groq free tier - 70B has lower limits)
-DELAY_BETWEEN_CALLS = 5  # seconds between API calls to avoid rate limits
+# Track which model to use (switches to fallback when hitting daily limits)
+current_model = PRIMARY_MODEL
+
+# Rate limit settings
+DELAY_BETWEEN_CALLS = 3  # seconds between API calls
 
 SYSTEM_PROMPT = """You are a strict JSON generator. Extract resume information into EXACTLY this schema:
 
@@ -78,13 +84,14 @@ def clean_text(text: str) -> str:
     return text.strip()
 
 def section_with_llm(text: str, retries: int = 3) -> dict:
-    """Call LLM to extract sections from resume text with retry logic."""
+    """Call LLM to extract sections from resume text with retry logic and model fallback."""
+    global current_model
     last_error = None
     
     for attempt in range(retries):
         try:
             response = client.chat.completions.create(
-                model=MODEL,
+                model=current_model,
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": text}
@@ -109,7 +116,18 @@ def section_with_llm(text: str, retries: int = 3) -> dict:
             return json.loads(content)
             
         except Exception as e:
+            error_str = str(e)
             last_error = e
+            
+            # Check if it's a daily token limit error (TPD = tokens per day)
+            if "429" in error_str and "tokens per day" in error_str.lower():
+                if current_model == PRIMARY_MODEL:
+                    print(f"\n  ⚠️ Daily limit hit on 70B model, switching to 8B fallback...")
+                    current_model = FALLBACK_MODEL
+                    time.sleep(2)
+                    continue  # Retry immediately with fallback model
+            
+            # For other errors, do normal retry with backoff
             if attempt < retries - 1:
                 wait_time = (attempt + 1) * 2  # 2s, 4s, 6s
                 print(f"\n  Retry {attempt + 1}/{retries} after error: {str(e)[:50]}...")
@@ -120,6 +138,9 @@ def section_with_llm(text: str, retries: int = 3) -> dict:
     raise last_error
 
 def process_all_txt():
+    global current_model
+    current_model = PRIMARY_MODEL  # Reset to primary at start
+    
     files = list(INPUT_DIR.glob("*.txt"))
     done_files = {
         f.stem for f in OUTPUT_DIR.glob("*.json")
@@ -130,6 +151,7 @@ def process_all_txt():
     print(f"Found {len(files)} resume files")
     print(f"Already processed: {len(done_files)}")
     print(f"Remaining: {len(pending_files)}")
+    print(f"Using model: {current_model}")
     
     if not pending_files:
         print("All files already processed!")
