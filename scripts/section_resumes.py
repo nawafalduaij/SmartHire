@@ -16,23 +16,41 @@ OUTPUT_DIR = PROJECT_ROOT / "data" / "processed" / "resumes_sectioned_json"
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# Groq - Free & Fast LLM inference
-client = OpenAI(
+# ===========================================
+# CLIENT CONFIGURATION
+# ===========================================
+
+# Groq - Free & Fast LLM inference (cloud)
+groq_client = OpenAI(
     api_key=os.getenv("GROQ_API_KEY"),
     base_url="https://api.groq.com/openai/v1"
 )
 
-# Model configuration
-# 70B: Better quality, 100k tokens/day limit
-# 8B: Good quality, 500k tokens/day limit (fallback)
-PRIMARY_MODEL = "llama-3.3-70b-versatile"
-FALLBACK_MODEL = "llama-3.1-8b-instant"
+# Ollama - Local LLM (unlimited, no rate limits)
+# Make sure Ollama is running: ollama serve
+ollama_client = OpenAI(
+    api_key="ollama",  # Ollama doesn't need a real key
+    base_url="http://localhost:11434/v1"
+)
 
-# Track which model to use (switches to fallback when hitting daily limits)
-current_model = PRIMARY_MODEL
+# ===========================================
+# MODEL CONFIGURATION
+# ===========================================
+# Priority order:
+# 1. Groq 70B (best quality, 100k tokens/day)
+# 2. Groq 8B (good quality, 500k tokens/day)
+# 3. Ollama local (unlimited, requires local setup)
+
+GROQ_PRIMARY = "llama-3.3-70b-versatile"
+GROQ_FALLBACK = "llama-3.1-8b-instant"
+OLLAMA_MODEL = "llama3.2"  # or "llama3.1:8b", "mistral", etc.
+
+# Track current provider and model
+current_provider = "groq"  # "groq" or "ollama"
+current_model = GROQ_PRIMARY
 
 # Rate limit settings
-DELAY_BETWEEN_CALLS = 3  # seconds between API calls
+DELAY_BETWEEN_CALLS = 3  # seconds between API calls (only for cloud)
 
 SYSTEM_PROMPT = """You are a strict JSON generator. Extract resume information into EXACTLY this schema:
 
@@ -83,13 +101,30 @@ def clean_text(text: str) -> str:
 
     return text.strip()
 
+def get_current_client():
+    """Get the appropriate client based on current provider."""
+    if current_provider == "ollama":
+        return ollama_client
+    return groq_client
+
+
+def switch_to_ollama():
+    """Switch to Ollama local model."""
+    global current_provider, current_model
+    current_provider = "ollama"
+    current_model = OLLAMA_MODEL
+    print(f"\n  🖥️ Switching to Ollama local model ({OLLAMA_MODEL})...")
+
+
 def section_with_llm(text: str, retries: int = 3) -> dict:
     """Call LLM to extract sections from resume text with retry logic and model fallback."""
-    global current_model
+    global current_provider, current_model
     last_error = None
     
     for attempt in range(retries):
         try:
+            client = get_current_client()
+            
             response = client.chat.completions.create(
                 model=current_model,
                 messages=[
@@ -119,13 +154,29 @@ def section_with_llm(text: str, retries: int = 3) -> dict:
             error_str = str(e)
             last_error = e
             
-            # Check if it's a daily token limit error (TPD = tokens per day)
-            if "429" in error_str and "tokens per day" in error_str.lower():
-                if current_model == PRIMARY_MODEL:
-                    print(f"\n  ⚠️ Daily limit hit on 70B model, switching to 8B fallback...")
-                    current_model = FALLBACK_MODEL
-                    time.sleep(2)
-                    continue  # Retry immediately with fallback model
+            # Only handle rate limits for Groq (cloud)
+            if current_provider == "groq":
+                # Check if it's a daily token limit error
+                if "429" in error_str and "tokens per day" in error_str.lower():
+                    if current_model == GROQ_PRIMARY:
+                        print(f"\n  ⚠️ Daily limit hit on 70B, switching to 8B...")
+                        current_model = GROQ_FALLBACK
+                        time.sleep(2)
+                        continue
+                    elif current_model == GROQ_FALLBACK:
+                        # Both Groq models exhausted, try Ollama
+                        switch_to_ollama()
+                        continue
+                
+                # Any 429 error on 8B model -> try Ollama
+                if "429" in error_str and current_model == GROQ_FALLBACK:
+                    switch_to_ollama()
+                    continue
+            
+            # Ollama connection error - helpful message
+            if current_provider == "ollama" and "Connection" in error_str:
+                print(f"\n  ❌ Ollama not running! Start it with: ollama serve")
+                print(f"     Then pull the model: ollama pull {OLLAMA_MODEL}")
             
             # For other errors, do normal retry with backoff
             if attempt < retries - 1:
@@ -138,8 +189,11 @@ def section_with_llm(text: str, retries: int = 3) -> dict:
     raise last_error
 
 def process_all_txt():
-    global current_model
-    current_model = PRIMARY_MODEL  # Reset to primary at start
+    global current_provider, current_model
+    
+    # Reset to Groq primary at start
+    current_provider = "groq"
+    current_model = GROQ_PRIMARY
     
     files = list(INPUT_DIR.glob("*.txt"))
     done_files = {
@@ -151,14 +205,17 @@ def process_all_txt():
     print(f"Found {len(files)} resume files")
     print(f"Already processed: {len(done_files)}")
     print(f"Remaining: {len(pending_files)}")
-    print(f"Using model: {current_model}")
+    print(f"Starting with: {current_provider} / {current_model}")
+    print(f"Fallback chain: Groq 70B → Groq 8B → Ollama local")
     
     if not pending_files:
         print("All files already processed!")
         return
 
     for i, file in enumerate(pending_files):
-        print(f"[{i+1}/{len(pending_files)}] Processing {file.name}...", end=" ")
+        # Show current provider if it changed
+        provider_tag = "🖥️" if current_provider == "ollama" else "☁️"
+        print(f"[{i+1}/{len(pending_files)}] {provider_tag} Processing {file.name}...", end=" ")
         
         try:
             raw = file.read_text(encoding="utf-8", errors="ignore")
@@ -177,8 +234,8 @@ def process_all_txt():
             
             print("✓")
             
-            # Delay between calls to avoid rate limits
-            if i < len(pending_files) - 1:  # Don't delay after last file
+            # Only delay for cloud APIs
+            if current_provider == "groq" and i < len(pending_files) - 1:
                 time.sleep(DELAY_BETWEEN_CALLS)
 
         except Exception as e:
