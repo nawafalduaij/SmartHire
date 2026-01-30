@@ -16,7 +16,6 @@ OUTPUT_DIR = PROJECT_ROOT / "data" / "processed" / "resumes_sectioned_json"
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-<<<<<<< Updated upstream
 # ===========================================
 # CLIENT CONFIGURATION
 # ===========================================
@@ -33,17 +32,6 @@ ollama_client = OpenAI(
     api_key="ollama",  # Ollama doesn't need a real key
     base_url="http://localhost:11434/v1"
 )
-=======
-# Groq - Free & Fast LLM inference
-client = OpenAI(
-    #api_key="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",
-    api_key="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",
-    base_url="https://openrouter.ai/api/v1"
-)
-
-# Using 70B model for better JSON handling on complex resumes
-MODEL = "deepseek/deepseek-chat"
->>>>>>> Stashed changes
 
 # ===========================================
 # MODEL CONFIGURATION

@@ -87,7 +87,7 @@ def build_vector_store(limit: int = 400):
     )
 
     db.persist()
-    print("✅ ChromaDB built successfully")
+    print("[OK] ChromaDB built successfully")
 
 
 if __name__ == "__main__":
