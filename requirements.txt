@@ -6,3 +6,8 @@ chromadb
 pypdf
 pdfplumber
 python-dotenv
+
+# HuggingFace embeddings
+langchain-huggingface
+sentence-transformers
+huggingface-hub

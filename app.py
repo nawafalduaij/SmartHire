@@ -21,6 +21,12 @@ from components.ui import render_section_header, render_upload_area, render_info
 from pdf_extractor import process_all_pdfs
 from section_resumes import process_all_txt as section_all_resumes
 
+# Extra utilities (embeddings / db / export)
+from scripts.build_vector_store import build_vector_store
+from scripts.export_chroma import export_chroma_csv
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.vectorstores import Chroma
+
 # Get directories
 dirs = get_directories()
 
@@ -190,6 +196,33 @@ with tab2:
         except Exception as e:
             st.error(f"❌ Pipeline error: {e}")
 
+    # -------------------------------
+    # Extra pipeline utilities: Build Embeddings / Export DB
+    # -------------------------------
+    st.markdown("<br>", unsafe_allow_html=True)
+    col_a, col_b = st.columns(2)
+
+    with col_a:
+        if st.button("📥 Build Embeddings", key="build_embeddings", use_container_width=True):
+            with st.spinner("Building embeddings and saving DB..."):
+                try:
+                    build_vector_store()
+                    st.success("✅ Embeddings built and saved to data/chroma_db")
+                except Exception as e:
+                    st.error(f"Error: {e}")
+
+    with col_b:
+        include_emb = st.checkbox("Include embeddings in CSV (large)", value=False)
+        if st.button("📤 Export DB to CSV", key="export_db", use_container_width=True):
+            with st.spinner("Exporting Chroma DB to CSV..."):
+                try:
+                    n = export_chroma_csv(include_embeddings=include_emb)
+                    st.success(f"✅ Exported {n} rows to data/chroma_export.csv")
+                    with open("data/chroma_export.csv", "rb") as fh:
+                        st.download_button("Download CSV", fh, file_name="data/chroma_export.csv")
+                except Exception as e:
+                    st.error(f"Error exporting DB: {e}")
+
 
 # ============================================
 # TAB 3: BROWSE CANDIDATES
@@ -219,6 +252,32 @@ with tab3:
             filtered_files = [f for f in structured_files if search_term.lower() in f.stem.lower()]
         else:
             filtered_files = structured_files
+
+        # ---------------------------------
+        # Quick AI-powered similarity query
+        # ---------------------------------
+        st.markdown("<br>", unsafe_allow_html=True)
+        ai_query = st.text_input("🔎 Ask the candidate DB (e.g., 'Python experience')", "")
+        ai_k = st.slider("Top k results", min_value=1, max_value=10, value=5)
+
+        @st.cache_resource
+        def _load_chroma():
+            emb = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+            return Chroma(persist_directory="data/chroma_db", embedding_function=emb)
+
+        if ai_query and st.button("Search DB", key="ai_search"):
+            try:
+                db = _load_chroma()
+                results = db.similarity_search_with_score(ai_query, k=ai_k)
+                if not results:
+                    st.info("No matches found.")
+                else:
+                    for doc, score in results:
+                        st.markdown(f"**{doc.metadata.get('source_file','unknown')}** — score: {score:.4f}")
+                        st.write(doc.page_content[:300])
+                        st.divider()
+            except Exception as e:
+                st.error(f"Error querying DB: {e}")
         
         # Pagination
         col1, col2, col3 = st.columns([1, 2, 1])
