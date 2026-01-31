@@ -3,23 +3,13 @@ SmartHire - Resume Query System
 Query ChromaDB and answer questions about candidates using RAG
 Works for any industry - not just IT
 """
-from pathlib import Path
-import os
 import json
 import re
-from openai import OpenAI
-from dotenv import load_dotenv
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-load_dotenv(PROJECT_ROOT / ".env")
-
-# ===========================================
-# PATHS
-# ===========================================
-CHROMA_PATH = PROJECT_ROOT / "data" / "chroma_db"
-JSON_PATH = PROJECT_ROOT / "data" / "processed" / "resumes_sectioned_json"
+from config import CHROMA_DIR, JSON_DIR, openrouter_client, OPENROUTER_MODEL
+from utils import build_resume_text
 
 # ===========================================
 # CHROMADB SETUP
@@ -30,77 +20,13 @@ embeddings = HuggingFaceEmbeddings(
 
 def get_vector_store():
     """Get the ChromaDB vector store."""
-    if not CHROMA_PATH.exists():
-        raise FileNotFoundError(f"ChromaDB not found at {CHROMA_PATH}. Run build_vector_store.py first!")
+    if not CHROMA_DIR.exists():
+        raise FileNotFoundError(f"ChromaDB not found at {CHROMA_DIR}. Run build_vector_store.py first!")
     
     return Chroma(
-        persist_directory=str(CHROMA_PATH),
+        persist_directory=str(CHROMA_DIR),
         embedding_function=embeddings
     )
-
-# ===========================================
-# LLM SETUP (OpenRouter)
-# ===========================================
-llm_client = OpenAI(
-    api_key=os.getenv("OPENROUTER_API_KEY"),
-    base_url="https://openrouter.ai/api/v1"
-)
-
-# OpenRouter models
-LLM_MODEL = "deepseek/deepseek-chat"
-
-# ===========================================
-# HELPER: Build full resume text from JSON
-# ===========================================
-
-def build_resume_text(sections: dict) -> str:
-    """Build a comprehensive text representation of a resume."""
-    parts = []
-    
-    # Summary
-    if sections.get("summary"):
-        parts.append(f"SUMMARY: {sections['summary']}")
-    
-    # Experience
-    experience = sections.get("experience", [])
-    if experience:
-        exp_texts = []
-        for exp in experience:
-            if isinstance(exp, dict):
-                exp_text = f"- {exp.get('title', '')} at {exp.get('company', '')}"
-                if exp.get('dates'):
-                    exp_text += f" ({exp.get('dates')})"
-                responsibilities = exp.get('responsibilities', [])
-                if responsibilities:
-                    exp_text += ": " + "; ".join(responsibilities[:3])
-                exp_texts.append(exp_text)
-            else:
-                exp_texts.append(f"- {exp}")
-        parts.append("EXPERIENCE:\n" + "\n".join(exp_texts))
-    
-    # Education
-    education = sections.get("education", [])
-    if education:
-        edu_texts = []
-        for edu in education:
-            if isinstance(edu, dict):
-                edu_text = f"- {edu.get('degree', '')} in {edu.get('field', '')} from {edu.get('institution', '')}"
-                edu_texts.append(edu_text)
-            else:
-                edu_texts.append(f"- {edu}")
-        parts.append("EDUCATION:\n" + "\n".join(edu_texts))
-    
-    # Skills
-    skills = sections.get("skills", [])
-    if skills:
-        parts.append(f"SKILLS: {', '.join(skills)}")
-    
-    # Certifications
-    certs = sections.get("certifications", [])
-    if certs:
-        parts.append(f"CERTIFICATIONS: {', '.join(certs)}")
-    
-    return "\n\n".join(parts)
 
 
 # ===========================================
@@ -132,10 +58,10 @@ def search_by_keywords(keywords: list[str], limit: int = 10) -> list[dict]:
     """
     matches = []
     
-    if not JSON_PATH.exists() or not keywords:
+    if not JSON_DIR.exists() or not keywords:
         return []
     
-    for json_file in JSON_PATH.glob("*.json"):
+    for json_file in JSON_DIR.glob("*.json"):
         try:
             data = json.loads(json_file.read_text(encoding="utf-8"))
             sections = data.get("sections", {})
@@ -281,8 +207,8 @@ RESUME CONTEXT:
 Provide a clear, helpful answer listing the relevant candidates."""
 
     try:
-        response = llm_client.chat.completions.create(
-            model=LLM_MODEL,
+        response = openrouter_client.chat.completions.create(
+            model=OPENROUTER_MODEL,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}

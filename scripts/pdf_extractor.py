@@ -1,12 +1,7 @@
 from pathlib import Path
 import pdfplumber
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-
-RAW_DIR = PROJECT_ROOT / "data" / "raw" / "fake_resumes"
-PROCESSED_DIR = PROJECT_ROOT / "data" / "processed" / "resumes_text"
-
-PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+from config import RAW_DIR, TEXT_DIR
 
 def extract_text_from_pdf(pdf_path: Path) -> str:
     text = ""
@@ -26,7 +21,7 @@ def process_all_pdfs():
     print(f"Found {len(pdf_files)} PDF files")
 
     for pdf_file in pdf_files:
-        output_file = PROCESSED_DIR / f"{pdf_file.stem}.txt"
+        output_file = TEXT_DIR / f"{pdf_file.stem}.txt"
 
         if output_file.exists():
             continue

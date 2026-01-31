@@ -2,30 +2,11 @@
 SmartHire - Resume Matching System (Week 8)
 Compare candidates against job descriptions with scoring (0-100) and reasoning.
 """
-from pathlib import Path
-import os
 import json
 import time
-from openai import OpenAI
-from dotenv import load_dotenv
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-load_dotenv(PROJECT_ROOT / ".env")
-
-# ===========================================
-# PATHS
-# ===========================================
-JSON_PATH = PROJECT_ROOT / "data" / "processed" / "resumes_sectioned_json"
-
-# ===========================================
-# LLM SETUP (OpenRouter - same as query_resumes)
-# ===========================================
-llm_client = OpenAI(
-    api_key=os.getenv("OPENROUTER_API_KEY"),
-    base_url="https://openrouter.ai/api/v1"
-)
-
-LLM_MODEL = "deepseek/deepseek-chat"
+from config import JSON_DIR, openrouter_client, OPENROUTER_MODEL
+from utils import build_resume_text
 
 # ===========================================
 # SCORING PROMPT
@@ -58,56 +39,6 @@ RULES:
 
 
 # ===========================================
-# HELPER: Build resume text
-# ===========================================
-def build_resume_text(sections: dict) -> str:
-    """Build a text representation of a resume for matching."""
-    parts = []
-    
-    if sections.get("summary"):
-        parts.append(f"SUMMARY: {sections['summary']}")
-    
-    # Experience
-    experience = sections.get("experience", [])
-    if experience:
-        exp_texts = []
-        for exp in experience:
-            if isinstance(exp, dict):
-                exp_text = f"- {exp.get('title', '')} at {exp.get('company', '')}"
-                if exp.get('dates'):
-                    exp_text += f" ({exp.get('dates')})"
-                responsibilities = exp.get('responsibilities', [])
-                if responsibilities:
-                    exp_text += ": " + "; ".join(responsibilities[:5])
-                exp_texts.append(exp_text)
-        if exp_texts:
-            parts.append("EXPERIENCE:\n" + "\n".join(exp_texts))
-    
-    # Education
-    education = sections.get("education", [])
-    if education:
-        edu_texts = []
-        for edu in education:
-            if isinstance(edu, dict):
-                edu_text = f"- {edu.get('degree', '')} in {edu.get('field', '')} from {edu.get('institution', '')}"
-                edu_texts.append(edu_text)
-        if edu_texts:
-            parts.append("EDUCATION:\n" + "\n".join(edu_texts))
-    
-    # Skills
-    skills = sections.get("skills", [])
-    if skills:
-        parts.append(f"SKILLS: {', '.join(skills)}")
-    
-    # Certifications
-    certs = sections.get("certifications", [])
-    if certs:
-        parts.append(f"CERTIFICATIONS: {', '.join(certs)}")
-    
-    return "\n\n".join(parts)
-
-
-# ===========================================
 # CORE: Score a single resume against job
 # ===========================================
 def score_resume(resume_text: str, job_description: str, retries: int = 2) -> dict:
@@ -125,8 +56,8 @@ Analyze how well this candidate matches the job requirements and provide a score
 
     for attempt in range(retries):
         try:
-            response = llm_client.chat.completions.create(
-                model=LLM_MODEL,
+            response = openrouter_client.chat.completions.create(
+                model=OPENROUTER_MODEL,
                 messages=[
                     {"role": "system", "content": SCORING_PROMPT},
                     {"role": "user", "content": user_prompt}
@@ -197,10 +128,10 @@ def match_all_resumes(job_description: str, limit: int = 20, progress_callback=N
         limit: Maximum number of resumes to process
         progress_callback: Optional function(current, total) for progress updates
     """
-    if not JSON_PATH.exists():
-        raise FileNotFoundError(f"No resumes found at {JSON_PATH}")
+    if not JSON_DIR.exists():
+        raise FileNotFoundError(f"No resumes found at {JSON_DIR}")
     
-    json_files = sorted(JSON_PATH.glob("*.json"))[:limit]
+    json_files = sorted(JSON_DIR.glob("*.json"))[:limit]
     
     if not json_files:
         raise ValueError("No resume JSON files found. Run the pipeline first.")
@@ -266,14 +197,14 @@ def match_top_candidates(job_description: str, n_candidates: int = 10, progress_
         # Fallback to processing all
         candidate_ids = None
     
-    if not JSON_PATH.exists():
-        raise FileNotFoundError(f"No resumes found at {JSON_PATH}")
+    if not JSON_DIR.exists():
+        raise FileNotFoundError(f"No resumes found at {JSON_DIR}")
     
     # Get files to process - exactly n_candidates
     if candidate_ids:
-        json_files = [JSON_PATH / f"{cid}.json" for cid in candidate_ids if (JSON_PATH / f"{cid}.json").exists()][:n_candidates]
+        json_files = [JSON_DIR / f"{cid}.json" for cid in candidate_ids if (JSON_DIR / f"{cid}.json").exists()][:n_candidates]
     else:
-        json_files = sorted(JSON_PATH.glob("*.json"))[:n_candidates]
+        json_files = sorted(JSON_DIR.glob("*.json"))[:n_candidates]
     
     results = []
     total = len(json_files)

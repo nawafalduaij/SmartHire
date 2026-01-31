@@ -5,14 +5,16 @@ from pathlib import Path
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
 
+from config import CHROMA_DIR, DATA_DIR
 
-def export_chroma_csv(persist_dir: str = "data/chroma_db", out_path: str = "data/chroma_export.csv", include_embeddings: bool = False) -> int:
+
+def export_chroma_csv(persist_dir: str = None, out_path: str = None, include_embeddings: bool = False) -> int:
     """Export Chroma collection to a CSV file.
 
     Returns the number of rows written.
     """
-    persist_path = Path(persist_dir)
-    out_path = Path(out_path)
+    persist_path = Path(persist_dir) if persist_dir else CHROMA_DIR
+    out_path = Path(out_path) if out_path else DATA_DIR / "chroma_export.csv"
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     # load embeddings (same model used to build DB)

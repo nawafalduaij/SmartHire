@@ -1,49 +1,12 @@
-from pathlib import Path
 import json
 import re
-import os
 import time
-from openai import OpenAI
-from dotenv import load_dotenv
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-
-# Load environment variables from .env file
-load_dotenv(PROJECT_ROOT / ".env")
-
-INPUT_DIR = PROJECT_ROOT / "data" / "processed" / "resumes_text"
-OUTPUT_DIR = PROJECT_ROOT / "data" / "processed" / "resumes_sectioned_json"
-
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
-# ===========================================
-# CLIENT CONFIGURATION
-# ===========================================
-
-# Groq - Free & Fast LLM inference (cloud)
-groq_client = OpenAI(
-    api_key=os.getenv("GROQ_API_KEY"),
-    base_url="https://api.groq.com/openai/v1"
+from config import (
+    TEXT_DIR, JSON_DIR,
+    groq_client, ollama_client,
+    GROQ_PRIMARY, GROQ_FALLBACK, OLLAMA_MODEL
 )
-
-# Ollama - Local LLM (unlimited, no rate limits)
-# Make sure Ollama is running: ollama serve
-ollama_client = OpenAI(
-    api_key="ollama",  # Ollama doesn't need a real key
-    base_url="http://localhost:11434/v1"
-)
-
-# ===========================================
-# MODEL CONFIGURATION
-# ===========================================
-# Priority order:
-# 1. Groq 70B (best quality, 100k tokens/day)
-# 2. Groq 8B (good quality, 500k tokens/day)
-# 3. Ollama local (unlimited, requires local setup)
-
-GROQ_PRIMARY = "llama-3.3-70b-versatile"
-GROQ_FALLBACK = "llama-3.1-8b-instant"
-OLLAMA_MODEL = "llama3.2"  # or "llama3.1:8b", "mistral", etc.
 
 # Track current provider and model
 current_provider = "groq"  # "groq" or "ollama"
@@ -195,9 +158,9 @@ def process_all_txt():
     current_provider = "groq"
     current_model = GROQ_PRIMARY
     
-    files = list(INPUT_DIR.glob("*.txt"))
+    files = list(TEXT_DIR.glob("*.txt"))
     done_files = {
-        f.stem for f in OUTPUT_DIR.glob("*.json")
+        f.stem for f in JSON_DIR.glob("*.json")
     }
     
     pending_files = [f for f in files if f.stem not in done_files]
@@ -228,7 +191,7 @@ def process_all_txt():
                 "sections": sections
             }
 
-            out_path = OUTPUT_DIR / f"{file.stem}.json"
+            out_path = JSON_DIR / f"{file.stem}.json"
             with open(out_path, "w", encoding="utf-8") as f:
                 json.dump(output, f, indent=2, ensure_ascii=False)
             

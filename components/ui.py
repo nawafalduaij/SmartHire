@@ -171,3 +171,86 @@ def render_pipeline_card(title: str, description: str, highlight: bool = False):
         <p style="color: #666;">{description}</p>
     </div>
     """, unsafe_allow_html=True)
+
+
+def render_empty_state(title: str, message: str):
+    """Render an empty state card"""
+    st.markdown(f"""
+    <div class="card" style="text-align: center; padding: 3rem;">
+        <h3>{title}</h3>
+        <p>{message}</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def render_instructions_card(title: str, items: list, ordered: bool = False, footer: str = None):
+    """Render an instructions card with a list of items"""
+    list_tag = "ol" if ordered else "ul"
+    items_html = "".join(f"<li>{item}</li>" for item in items)
+    footer_html = f"<p>{footer}</p>" if footer else ""
+    
+    st.markdown(f"""
+    <div class="card">
+        <h4>{title}</h4>
+        <{list_tag}>{items_html}</{list_tag}>
+        {footer_html}
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def render_candidate_result(result: dict, rank: int = 1, expanded: bool = False):
+    """Render a candidate matching result with score bar"""
+    score = result["score"]
+    
+    # Color based on score
+    if score >= 75:
+        score_color = "#28a745"
+        badge = "🟢 Strong Match"
+    elif score >= 60:
+        score_color = "#ffc107"
+        badge = "🟡 Good Match"
+    elif score >= 40:
+        score_color = "#fd7e14"
+        badge = "🟠 Partial Match"
+    else:
+        score_color = "#dc3545"
+        badge = "🔴 Weak Match"
+    
+    with st.expander(f"#{rank} Candidate {result['candidate_id']} — **{score}/100** {badge}", expanded=expanded):
+        # Score bar
+        st.markdown(f"""
+        <div style="background: #e0e0e0; border-radius: 10px; height: 20px; margin-bottom: 1rem;">
+            <div style="background: {score_color}; width: {score}%; height: 100%; border-radius: 10px;"></div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Summary
+        st.markdown(f"**📋 Summary:** {result['summary']}")
+        
+        # Strengths & Gaps
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("**✅ Strengths:**")
+            if result['strengths']:
+                for s in result['strengths'][:5]:
+                    st.markdown(f"- {s}")
+            else:
+                st.caption("None identified")
+        
+        with col2:
+            st.markdown("**⚠️ Gaps:**")
+            if result['gaps']:
+                for g in result['gaps'][:5]:
+                    st.markdown(f"- {g}")
+            else:
+                st.caption("None identified")
+        
+        # Reasoning
+        st.markdown("**💭 Reasoning:**")
+        st.write(result['reasoning'])
+        
+        # Skills
+        if result.get('skills'):
+            st.markdown("**🛠️ Skills:**")
+            st.write(" • ".join(result['skills'][:15]))
