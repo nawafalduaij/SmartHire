@@ -65,8 +65,8 @@ st.set_page_config(
 )
 
 # Load styling and render layout
-load_css()
 stats = get_dataset_stats()
+load_css()
 render_hero()
 render_sidebar(stats)
 

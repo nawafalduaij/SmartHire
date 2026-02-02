@@ -5,7 +5,7 @@ import streamlit as st
 
 
 def load_css():
-    """Load custom CSS styling for the app"""
+    """Load custom CSS styling for the app (dark mode only)."""
     st.markdown("""
     <style>
     /* Main container */
@@ -38,11 +38,11 @@ def load_css():
     
     /* Stats cards */
     .stat-card {
-        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+        background: linear-gradient(135deg, #262730 0%, #3d3d4a 100%);
         padding: 1.5rem;
         border-radius: 12px;
         text-align: center;
-        border: 1px solid #e0e0e0;
+        border: 1px solid #3d3d4a;
     }
     
     .stat-card-primary {
@@ -64,30 +64,37 @@ def load_css():
     
     /* Section headers */
     .section-header {
-        background: #f8f9fa;
+        background: #262730;
         padding: 1rem 1.5rem;
         border-radius: 10px;
         margin: 1.5rem 0 1rem 0;
         border-left: 4px solid #667eea;
+        color: #fafafa;
     }
+    
+    .section-header h3 { color: #fafafa; }
     
     /* Card container */
     .card {
-        background: white;
+        background: #262730;
         padding: 1.5rem;
         border-radius: 12px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
         margin-bottom: 1rem;
-        border: 1px solid #eee;
+        border: 1px solid #3d3d4a;
+        color: #e0e0e0;
     }
+    
+    .card h4, .card li { color: #e0e0e0; }
     
     /* Experience card */
     .exp-card {
-        background: #fafbfc;
+        background: #262730;
         padding: 1rem;
         border-radius: 8px;
         margin-bottom: 0.8rem;
         border-left: 3px solid #667eea;
+        color: #e0e0e0;
     }
     
     /* Skills tags */
@@ -107,9 +114,12 @@ def load_css():
         border-radius: 12px;
         padding: 2rem;
         text-align: center;
-        background: #f8f9ff;
+        background: #1e1e28;
         margin: 1rem 0;
+        color: #e0e0e0;
     }
+    
+    .upload-area h4, .upload-area p { color: #e0e0e0; }
     
     /* Hide Streamlit branding */
     #MainMenu {visibility: hidden;}
@@ -134,5 +144,20 @@ def load_css():
     .stButton > button[kind="primary"] {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     }
+    
+    /* Dark mode: app and main area */
+    .stApp { background-color: #0e1117 !important; }
+    .main { background-color: #0e1117 !important; }
+    .main .block-container { background-color: transparent !important; color: #fafafa !important; }
+    .main .block-container p, .main .block-container li { color: #e0e0e0 !important; }
+    .main h1, .main h2, .main h3, .main h4 { color: #fafafa !important; }
+    .main [data-testid="stVerticalBlock"] { background: transparent !important; }
+    .stat-card { background: linear-gradient(135deg, #262730 0%, #3d3d4a 100%) !important; border-color: #3d3d4a !important; color: #e0e0e0 !important; }
+    .stat-card h3, .stat-card p { color: #e0e0e0 !important; }
+    [data-testid="stFileUploader"] { background: #1e1e28 !important; border-radius: 12px; }
+    [data-testid="stFileUploader"] section { background: #1e1e28 !important; border: 2px dashed #667eea !important; }
+    [data-testid="stSidebar"] { background-color: #0e1117 !important; }
+    [data-testid="stSidebar"] .stMarkdown { color: #fafafa !important; }
+    [data-testid="stSidebar"] p, [data-testid="stSidebar"] label { color: #e0e0e0 !important; }
     </style>
     """, unsafe_allow_html=True)
