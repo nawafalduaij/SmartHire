@@ -140,8 +140,8 @@ def render_upload_area():
     """Render the upload area with styling"""
     st.markdown("""
     <div class="upload-area">
-        <h4>📤 Drop your resume here</h4>
-        <p>Supports PDF format • AI-powered extraction</p>
+        <h4>📤 Drop your resumes here</h4>
+        <p>Upload one or more PDFs • AI-powered extraction</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -198,8 +198,9 @@ def render_instructions_card(title: str, items: list, ordered: bool = False, foo
     """, unsafe_allow_html=True)
 
 
-def render_candidate_result(result: dict, rank: int = 1, expanded: bool = False):
-    """Render a candidate matching result with score bar"""
+def render_candidate_result(result: dict, rank: int = 1, expanded: bool = False, dirs: dict = None):
+    """Render a candidate matching result with score bar and optional View PDF button."""
+    from .helpers import get_candidate_pdf_path
     score = result["score"]
     
     # Color based on score
@@ -254,3 +255,11 @@ def render_candidate_result(result: dict, rank: int = 1, expanded: bool = False)
         if result.get('skills'):
             st.markdown("**🛠️ Skills:**")
             st.write(" • ".join(result['skills'][:15]))
+        
+        # View PDF inline if available
+        if dirs:
+            pdf_path = get_candidate_pdf_path(dirs, result["candidate_id"])
+            if pdf_path:
+                if st.button("📄 View PDF", key=f"view_match_{result['candidate_id']}_{rank}"):
+                    st.session_state["match_view_pdf"] = result["candidate_id"]
+                    st.rerun()

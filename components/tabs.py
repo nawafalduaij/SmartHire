@@ -2,37 +2,84 @@
 SmartHire - Tab Components
 Each tab's content as a reusable function
 """
-import streamlit as st
+import base64
 import json
-from pathlib import Path
+import streamlit as st
 
 from .ui import (
     render_section_header, render_upload_area, render_info_card,
     render_stat_card, render_pipeline_card, display_sections,
     render_empty_state, render_instructions_card, render_candidate_result
 )
+from .helpers import get_candidate_pdf_path
+
+# st.dialog (1.46+) or st.experimental_dialog (1.36+) for pop-up PDF viewer
+_dialog_decorator = getattr(st, "dialog", getattr(st, "experimental_dialog", None))
+
+
+def _render_pdf_content(cid: str, dirs: dict, session_key: str, close_key: str):
+    """Render PDF iframe and Close button (used in modal or inline)."""
+    pdf_path = get_candidate_pdf_path(dirs, cid)
+    if not pdf_path:
+        st.warning("PDF not found.")
+        if st.button("Close", key=close_key):
+            if session_key in st.session_state:
+                del st.session_state[session_key]
+            st.rerun()
+        return
+    try:
+        b64 = base64.b64encode(pdf_path.read_bytes()).decode()
+        st.markdown(
+            f'<iframe src="data:application/pdf;base64,{b64}" width="100%" height="80vh" style="min-height: 600px; border: none;"></iframe>',
+            unsafe_allow_html=True,
+        )
+    except Exception:
+        st.caption("PDF too large to display.")
+    if st.button("Close", key=close_key):
+        if session_key in st.session_state:
+            del st.session_state[session_key]
+        st.rerun()
+
+
+if _dialog_decorator:
+    @_dialog_decorator("View PDF", width="large")
+    def _pdf_modal(cid: str, dirs: dict, session_key: str):
+        _render_pdf_content(cid, dirs, session_key, f"close_modal_{session_key}")
+else:
+    def _pdf_modal(cid: str, dirs: dict, session_key: str):
+        """Fallback: no-op when st.dialog not available (use inline expander at call site)."""
+        pass
 
 
 def render_tab_analyze(dirs: dict, process_single_resume):
-    """Tab 1: Upload & Analyze Resume"""
+    """Tab 1: Upload & Analyze Resume (supports multiple PDFs)"""
     render_section_header("📄 Upload & Analyze Resume")
     
     col_upload, col_info = st.columns([2, 1])
     
     with col_upload:
         render_upload_area()
-        uploaded_file = st.file_uploader("Upload Resume", type=["pdf"], label_visibility="collapsed")
+        uploaded_files = st.file_uploader(
+            "Upload Resumes",
+            type=["pdf"],
+            accept_multiple_files=True,
+            label_visibility="collapsed"
+        )
     
     with col_info:
         render_info_card()
     
-    if uploaded_file is not None:
-        # Save uploaded file
-        save_path = dirs["uploads"] / uploaded_file.name
-        with open(save_path, "wb") as f:
-            f.write(uploaded_file.getbuffer())
+    if uploaded_files:
+        # Save all uploaded files
+        save_paths = []
+        for uf in uploaded_files:
+            save_path = dirs["uploads"] / uf.name
+            with open(save_path, "wb") as f:
+                f.write(uf.getbuffer())
+            save_paths.append(save_path)
         
-        st.success(f"✅ **{uploaded_file.name}** uploaded successfully!")
+        n = len(uploaded_files)
+        st.success(f"✅ **{n}** file{'s' if n != 1 else ''} uploaded successfully!")
         
         # Advanced options
         with st.expander("⚙️ Advanced Options", expanded=False):
@@ -45,38 +92,54 @@ def render_tab_analyze(dirs: dict, process_single_resume):
         # Analyze button
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
-            analyze_btn = st.button("🚀 Analyze Resume with AI", type="primary", use_container_width=True)
+            analyze_btn = st.button("🚀 Analyze All Resumes with AI", type="primary", use_container_width=True)
         
         if analyze_btn:
-            with st.spinner("🤖 AI is analyzing the resume..."):
-                result = process_single_resume(save_path)
+            render_section_header("📊 Analysis Results")
+            errors = []
+            for i, save_path in enumerate(save_paths):
+                with st.spinner(f"🤖 Analyzing **{save_path.name}** ({i + 1}/{len(save_paths)})..."):
+                    result = process_single_resume(save_path)
+                
+                if "error" in result:
+                    errors.append((save_path.name, result["error"]))
+                    st.error(f"❌ **{save_path.name}**: {result['error']}")
+                else:
+                    # Save to sectioned folder so results persist (Browse Candidates / AI Search)
+                    sectioned_output = {
+                        "source_txt": save_path.name,
+                        "sections": result["sections"]
+                    }
+                    sectioned_path = dirs["sectioned"] / f"{save_path.stem}.json"
+                    sectioned_path.parent.mkdir(parents=True, exist_ok=True)
+                    with open(sectioned_path, "w", encoding="utf-8") as f:
+                        json.dump(sectioned_output, f, indent=2, ensure_ascii=False)
+
+                    with st.expander(f"📄 {save_path.name}", expanded=(i == 0)):
+                        display_sections(result["sections"])
+                        
+                        if show_raw:
+                            with st.expander("📄 Raw Extracted Text", expanded=False):
+                                st.text_area("Raw Text", result["raw_text"], height=200, label_visibility="collapsed", key=f"raw_{save_path.stem}_{i}")
+                        
+                        if show_clean:
+                            with st.expander("🧹 Cleaned Text", expanded=False):
+                                st.text_area("Cleaned Text", result["clean_text"], height=200, label_visibility="collapsed", key=f"clean_{save_path.stem}_{i}")
+                        
+                        json_output = json.dumps(result["sections"], indent=2, ensure_ascii=False)
+                        st.download_button(
+                            label="📥 Download JSON",
+                            data=json_output,
+                            file_name=f"{save_path.stem}_structured.json",
+                            mime="application/json",
+                            use_container_width=True,
+                            key=f"download_{save_path.stem}_{i}"
+                        )
             
-            if "error" in result:
-                st.error(f"❌ {result['error']}")
+            if errors:
+                st.warning(f"⚠️ {len(errors)} of {len(save_paths)} file(s) could not be processed.")
             else:
-                render_section_header("📊 Analysis Results")
-                display_sections(result["sections"])
-                
-                if show_raw:
-                    with st.expander("📄 Raw Extracted Text"):
-                        st.text_area("Raw Text", result["raw_text"], height=200, label_visibility="collapsed")
-                
-                if show_clean:
-                    with st.expander("🧹 Cleaned Text"):
-                        st.text_area("Cleaned Text", result["clean_text"], height=200, label_visibility="collapsed")
-                
-                # Download button
-                st.divider()
-                col1, col2, col3 = st.columns([1, 2, 1])
-                with col2:
-                    json_output = json.dumps(result["sections"], indent=2, ensure_ascii=False)
-                    st.download_button(
-                        label="📥 Download JSON",
-                        data=json_output,
-                        file_name=f"{save_path.stem}_structured.json",
-                        mime="application/json",
-                        use_container_width=True
-                    )
+                st.success("💾 Analysis results saved. They will appear in **Browse Candidates** and **AI Search** (run **Build Embeddings** in Pipeline Manager if you use AI Search).")
 
 
 def render_tab_pipeline(stats: dict, process_all_pdfs, section_all_resumes, build_vector_store, export_chroma_csv):
@@ -278,7 +341,7 @@ def render_tab_browse(dirs: dict, search_resumes=None, query_available: bool = F
             st.error(f"Error loading {file.name}: {e}")
 
 
-def render_tab_ai_search(answer_question, query_available: bool = False, error_msg: str = None):
+def render_tab_ai_search(answer_question, query_available: bool = False, error_msg: str = None, dirs: dict = None):
     """Tab 4: AI Search"""
     render_section_header("🔍 Ask AI About Candidates")
     
@@ -317,19 +380,7 @@ def render_tab_ai_search(answer_question, query_available: bool = False, error_m
         with st.spinner("🤖 AI is searching and analyzing resumes..."):
             try:
                 result = answer_question(question, n_results=num_results)
-                
-                render_section_header("📝 AI Answer")
-                st.markdown(f'<div class="card">{result["answer"]}</div>', unsafe_allow_html=True)
-                
-                st.markdown("<br>", unsafe_allow_html=True)
-                st.markdown(f"**📚 Sources** ({result['num_results']} resumes analyzed)")
-                
-                for src in result["sources"]:
-                    matched_kw = src.get("matched_keywords", [])
-                    if matched_kw:
-                        st.markdown(f"- **Candidate {src['id']}** - 🎯 Matched: **{', '.join(matched_kw)}**")
-                    else:
-                        st.markdown(f"- **Candidate {src['id']}** - Relevance: {int(src['score'] * 100)}%")
+                st.session_state["ai_search_last_result"] = result
             except Exception as e:
                 if "Collection" in str(e):
                     st.error("❌ ChromaDB not set up yet! Run the pipeline first.")
@@ -338,8 +389,41 @@ def render_tab_ai_search(answer_question, query_available: bool = False, error_m
     elif search_btn:
         st.warning("Please enter a question first.")
 
+    # Show last result (answer + sources with View PDF)
+    result = st.session_state.get("ai_search_last_result")
+    if result:
+        render_section_header("📝 AI Answer")
+        st.markdown(f'<div class="card">{result["answer"]}</div>', unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown(f"**📚 Sources** ({result['num_results']} resumes analyzed)")
+        for src in result["sources"]:
+            cid = src["id"]
+            matched_kw = src.get("matched_keywords", [])
+            col_text, col_btn = st.columns([1, 0.2])
+            with col_text:
+                if matched_kw:
+                    st.markdown(f"- **Candidate {cid}** - 🎯 Matched: **{', '.join(matched_kw)}**")
+                else:
+                    st.markdown(f"- **Candidate {cid}** - Relevance: {int(src['score'] * 100)}%")
+            with col_btn:
+                if dirs:
+                    pdf_path = get_candidate_pdf_path(dirs, cid)
+                    if pdf_path:
+                        if st.button("📄 View PDF", key=f"view_ai_{cid}"):
+                            st.session_state["ai_search_view_pdf"] = cid
+                            st.rerun()
 
-def render_tab_matching(match_top_candidates, matching_available: bool = False, error_msg: str = None):
+    # Pop-up PDF viewer (AI Search)
+    if st.session_state.get("ai_search_view_pdf") and dirs:
+        cid = st.session_state["ai_search_view_pdf"]
+        if _dialog_decorator:
+            _pdf_modal(cid, dirs, "ai_search_view_pdf")
+        else:
+            with st.expander(f"📄 Viewing PDF: Candidate {cid}", expanded=True):
+                _render_pdf_content(cid, dirs, "ai_search_view_pdf", "close_ai_pdf")
+
+
+def render_tab_matching(match_top_candidates, matching_available: bool = False, error_msg: str = None, dirs: dict = None):
     """Tab 5: Job Matching"""
     render_section_header("🎯 Match Candidates to Job Description")
     
@@ -394,29 +478,35 @@ def render_tab_matching(match_top_candidates, matching_available: bool = False, 
         with st.spinner("🤖 AI is analyzing candidates..."):
             try:
                 results = match_top_candidates(job_description.strip(), n_candidates=n_candidates, progress_callback=update_progress)
-                
+                st.session_state["match_last_results"] = results
                 progress_bar.progress(1.0)
                 status_text.success(f"✅ Analyzed {len(results)} candidates!")
-                
-                if results:
-                    st.markdown("<br>", unsafe_allow_html=True)
-                    render_section_header(f"📊 Top {len(results)} Candidates")
-                    
-                    for i, r in enumerate(results, 1):
-                        render_candidate_result(r, rank=i, expanded=(i <= 3))
-                    
-                    # Download results
-                    st.markdown("<br>", unsafe_allow_html=True)
-                    st.download_button(
-                        "📥 Download Results (JSON)",
-                        json.dumps(results, indent=2, ensure_ascii=False),
-                        file_name="matching_results.json",
-                        mime="application/json",
-                        use_container_width=True
-                    )
-                else:
-                    st.warning("No candidates could be analyzed. Make sure the pipeline has been run.")
             except Exception as e:
                 st.error(f"❌ Error during matching: {e}")
-    elif match_btn:
+
+    # Show last match results (candidate list with View PDF)
+    results = st.session_state.get("match_last_results", [])
+    if results:
+        st.markdown("<br>", unsafe_allow_html=True)
+        render_section_header(f"📊 Top {len(results)} Candidates")
+        for i, r in enumerate(results, 1):
+            render_candidate_result(r, rank=i, expanded=(i <= 3), dirs=dirs)
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.download_button(
+            "📥 Download Results (JSON)",
+            json.dumps(results, indent=2, ensure_ascii=False),
+            file_name="matching_results.json",
+            mime="application/json",
+            use_container_width=True
+        )
+    if match_btn and not job_description.strip():
         st.warning("Please enter a job description first.")
+
+    # Pop-up PDF viewer (Job Matching)
+    if st.session_state.get("match_view_pdf") and dirs:
+        cid = st.session_state["match_view_pdf"]
+        if _dialog_decorator:
+            _pdf_modal(cid, dirs, "match_view_pdf")
+        else:
+            with st.expander(f"📄 Viewing PDF: Candidate {cid}", expanded=True):
+                _render_pdf_content(cid, dirs, "match_view_pdf", "close_match_pdf")

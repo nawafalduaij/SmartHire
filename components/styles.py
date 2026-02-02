@@ -145,6 +145,15 @@ def load_css():
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     }
     
+    /* PDF viewer dialog: make it large (width set via st.dialog width="large", height via CSS) */
+    [data-testid="stDialog"] {
+        max-height: 90vh !important;
+        min-height: 80vh !important;
+    }
+    [data-testid="stDialog"] [data-testid="stVerticalBlock"] {
+        min-height: 75vh !important;
+    }
+    
     /* Dark mode: app and main area */
     .stApp { background-color: #0e1117 !important; }
     .main { background-color: #0e1117 !important; }

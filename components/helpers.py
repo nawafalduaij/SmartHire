@@ -62,6 +62,22 @@ def process_single_resume(pdf_path: Path) -> dict:
     }
 
 
+def get_candidate_pdf_path(dirs: dict, candidate_id: str) -> Path | None:
+    """
+    Resolve the PDF path for a candidate (JSON file stem).
+    Checks uploads first (Analyze tab), then raw (pipeline).
+    Returns Path if PDF exists, else None.
+    """
+    for folder_key in ("uploads", "raw"):
+        folder = dirs.get(folder_key)
+        if not folder:
+            continue
+        path = folder / f"{candidate_id}.pdf"
+        if path.exists():
+            return path
+    return None
+
+
 def get_directories() -> dict:
     """Get all directory paths"""
     return {

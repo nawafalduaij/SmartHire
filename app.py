@@ -91,7 +91,7 @@ with tab3:
     render_tab_browse(dirs, search_resumes, QUERY_AVAILABLE)
 
 with tab4:
-    render_tab_ai_search(answer_question, QUERY_AVAILABLE, QUERY_ERROR)
+    render_tab_ai_search(answer_question, QUERY_AVAILABLE, QUERY_ERROR, dirs)
 
 with tab5:
-    render_tab_matching(match_top_candidates, MATCHING_AVAILABLE, MATCHING_ERROR)
+    render_tab_matching(match_top_candidates, MATCHING_AVAILABLE, MATCHING_ERROR, dirs)
