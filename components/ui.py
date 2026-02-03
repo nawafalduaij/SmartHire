@@ -9,7 +9,7 @@ def render_hero():
     """Render the hero header section"""
     st.markdown("""
     <div class="hero-header">
-        <h1>🎯 SmartHire</h1>
+        <h1>SmartHire</h1>
         <p>AI-Powered Intelligent Recruitment Assistant</p>
     </div>
     """, unsafe_allow_html=True)
@@ -19,19 +19,19 @@ def render_sidebar(stats: dict):
     """Render the sidebar with stats and system status"""
     with st.sidebar:
         st.image("https://img.icons8.com/fluency/96/resume.png", width=80)
-        st.markdown("### 📊 Dashboard")
+        st.markdown("### Dashboard")
         
-        # Stats with colored boxes
+        # Stats with colored boxes (#667eea, #28a745, #764ba2)
         st.markdown(f"""
         <div class="stat-card" style="margin-bottom: 10px;">
-            <h3>{stats["raw_pdfs"]}</h3>
+            <h3 style="color: #667eea;">{stats["raw_pdfs"]}</h3>
             <p>📁 Raw PDFs</p>
         </div>
         """, unsafe_allow_html=True)
         
         st.markdown(f"""
         <div class="stat-card" style="margin-bottom: 10px;">
-            <h3>{stats["extracted_text"]}</h3>
+            <h3 style="color: #28a745;">{stats["extracted_text"]}</h3>
             <p>📝 Extracted</p>
         </div>
         """, unsafe_allow_html=True)
@@ -46,8 +46,8 @@ def render_sidebar(stats: dict):
         st.divider()
         
         # System status
-        st.success("🟢 System Online")
-        st.caption("Powered by Groq LLM")
+        st.success("System Online")
+      
 
 
 def display_sections(sections: dict):
@@ -60,7 +60,6 @@ def display_sections(sections: dict):
         "certifications": "📜",
         "other": "📄"
     }
-    
     for section_name, content in sections.items():
         if content:
             icon = section_icons.get(section_name, "📄")
@@ -140,7 +139,7 @@ def render_upload_area():
     """Render the upload area with styling"""
     st.markdown("""
     <div class="upload-area">
-        <h4>📤 Drop your resumes here</h4>
+        <h4>Drop your resumes here</h4>
         <p>Upload one or more PDFs • AI-powered extraction</p>
     </div>
     """, unsafe_allow_html=True)
@@ -150,13 +149,13 @@ def render_info_card():
     """Render the info card showing what we extract"""
     st.markdown("""
     <div class="card">
-        <h4>✨ What we extract:</h4>
+        <h4>What we extract:</h4>
         <ul>
-            <li>📋 Professional Summary</li>
-            <li>💼 Work Experience</li>
-            <li>🎓 Education</li>
-            <li>🛠️ Skills & Competencies</li>
-            <li>📜 Certifications</li>
+            <li>Professional Summary</li>
+            <li>Work Experience</li>
+            <li>Education</li>
+            <li>Skills & Competencies</li>
+            <li>Certifications</li>
         </ul>
     </div>
     """, unsafe_allow_html=True)
@@ -206,16 +205,16 @@ def render_candidate_result(result: dict, rank: int = 1, expanded: bool = False,
     # Color based on score
     if score >= 75:
         score_color = "#28a745"
-        badge = "🟢 Strong Match"
+        badge = "Strong Match"
     elif score >= 60:
         score_color = "#ffc107"
-        badge = "🟡 Good Match"
+        badge = "Good Match"
     elif score >= 40:
         score_color = "#fd7e14"
-        badge = "🟠 Partial Match"
+        badge = "Partial Match"
     else:
         score_color = "#dc3545"
-        badge = "🔴 Weak Match"
+        badge = "Weak Match"
     
     with st.expander(f"#{rank} Candidate {result['candidate_id']} — **{score}/100** {badge}", expanded=expanded):
         # Score bar
